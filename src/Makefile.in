@@ -296,7 +296,10 @@ hello_world_LDADD = $(AM_LIBS) $(MODBUS_LIBS) $(BACNET_LIBS)
 #hello_world_CFLAGS = $(AM_CFLAGS) $(BACNET_CFLAGS)
 #hello_world_LDADD = $(AM_LIBS) $(BACNET_LIBS)
 hello_world_SOURCES = hello_world.c
-all: all-am
+BUILT_SOURCES = bacnet_namespace.h .bacnet_dependent_src_stamp
+EXTRA_DIST = bacnet_api_names
+all: $(BUILT_SOURCES)
+	$(MAKE) $(AM_MAKEFLAGS) all-am
 
 .SUFFIXES:
 .SUFFIXES: .c .lo .o .obj
@@ -517,13 +520,15 @@ distdir: $(DISTFILES)
 	  fi; \
 	done
 check-am: all-am
-check: check-am
+check: $(BUILT_SOURCES)
+	$(MAKE) $(AM_MAKEFLAGS) check-am
 all-am: Makefile $(PROGRAMS)
 installdirs:
 	for dir in "$(DESTDIR)$(bindir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
-install: install-am
+install: $(BUILT_SOURCES)
+	$(MAKE) $(AM_MAKEFLAGS) install-am
 install-exec: install-exec-am
 install-data: install-data-am
 uninstall: uninstall-am
@@ -553,6 +558,7 @@ distclean-generic:
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
+	-test -z "$(BUILT_SOURCES)" || rm -f $(BUILT_SOURCES)
 clean: clean-am
 
 clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
@@ -623,7 +629,7 @@ ps-am:
 
 uninstall-am: uninstall-binPROGRAMS
 
-.MAKE: install-am install-strip
+.MAKE: all check install install-am install-strip
 
 .PHONY: CTAGS GTAGS TAGS all all-am check check-am clean \
 	clean-binPROGRAMS clean-generic clean-libtool cscopelist-am \
@@ -639,6 +645,13 @@ uninstall-am: uninstall-binPROGRAMS
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags tags-am uninstall uninstall-am uninstall-binPROGRAMS
 
+
+.bacnet_dependent_src_stamp: bacnet_api_names $(BACNET_DEPENDENT_SRC)
+	cat $< | $(top_srcdir)/scripts/check_namespace.sh $< $?
+	touch $@
+
+bacnet_namespace.h: bacnet_api_names
+	cat $< | $(top_srcdir)/scripts/build_namespace.sh > $@
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

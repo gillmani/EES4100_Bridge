@@ -36,11 +36,70 @@
 
 #if RUN_AS_BBMD_CLIENT
 #define BACNET_BBMD_PORT	    0xBAC0
-#define BACNET_BBMD_ADDRESS	    "140.159.153.159" // uni
+#define BACNET_BBMD_ADDRESS	    "140.159.160.7" // uni
 //#define BACNET_BBMD_ADDRESS	    "127.0.0.1"  // home
 
 #define BACNET_BBMD_TTL		    90
 #endif
+
+typedef struct s_word_object word_object;
+struct s_word_object {
+    char *word;
+	uint16_t number;
+    word_object *next;
+};
+
+/* list_head: Shared between two threads, must be accessed with list_lock */
+static word_object *list_head;
+static pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t list_data_ready = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t list_data_flush = PTHREAD_COND_INITIALIZER;
+
+/* Add object to list */
+static void add_to_list(char *word) {
+    word_object *last_object, *tmp_object;
+    char *tmp_string;
+    
+    /* Do all memory allocation outside of locking - strdup() and malloc() can
+     * block */
+    tmp_object = malloc(sizeof(word_object));
+    tmp_string = strdup(word);
+
+    /* Set up tmp_object outside of locking */
+    tmp_object->word = tmp_string;
+    tmp_object->next = NULL;
+
+    pthread_mutex_lock(&list_lock);
+
+    if (list_head == NULL) {
+	/* The list is empty, just place our tmp_object at the head */
+	list_head = tmp_object;
+    } else {
+	/* Iterate through the linked list to find the last object */
+	last_object = list_head;
+	while (last_object->next) {
+	    last_object = last_object->next;
+	}
+	/* Last object is now found, link in our tmp_object at the tail */
+	last_object->next = tmp_object;
+    }
+
+    pthread_mutex_unlock(&list_lock);
+    pthread_cond_signal(&list_data_ready);
+}
+
+/* Retrieve the first object in the linked list. Note that this function must
+ * be called with list_lock held */
+static word_object *list_get_first(void) {
+    word_object *first_object;
+
+    first_object = list_head;
+    list_head = list_head->next;
+
+    return first_object;
+}
+
+
 
 static uint16_t tab_reg[4]={}
 static uint16_t test_data[] = {
@@ -49,14 +108,15 @@ static uint16_t test_data[] = {
 
 static pthread_mutex_t timer_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static int Update_Analog_Input_Read_Property(
-		BACNET_READ_PROPERTY_DATA *rpdata) {
+static int Update_Analog_Input_Read_Property(BACNET_READ_PROPERTY_DATA *rpdata) 
+{
+	static int index;
+	word_object *first_object
+    
+    int instance_no = bacnet_Analog_Input_Instance_To_Index(rpdata->object_instance);
 
-    static int index;
-    int instance_no = bacnet_Analog_Input_Instance_To_Index(
-			rpdata->object_instance);
-
-    if (rpdata->object_property != bacnet_PROP_PRESENT_VALUE) goto not_pv;
+    if (rpdata->object_property != bacnet_PROP_PRESENT_VALUE)
+	 goto not_pv;
 
     printf("AI_Present_Value request for instance %i\n", instance_no);
  //ANALOG INPUT FOR 4 INSTANCES
@@ -195,6 +255,34 @@ static void ms_tick(void) {
     bacnet_apdu_set_confirmed_handler(			\
 		    SERVICE_CONFIRMED_##service,	\
 		    bacnet_handler_##handler)
+int my_modbus_connect (void)
+{
+printf("modbus\n");
+        modbus_t *ctx;
+	uint16_t tab_reg[32];
+	
+	//ctx = modbus_new_tcp("127.0.0.1", 502 );
+	 ctx = modbus_new_tcp(SERVER_ADDR, SERVER_PORT );
+	if (modbus_connect(ctx) == -1) {
+    	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+   	 modbus_free(ctx);
+   	 return -1;
+	}
+
+          /* Read 4 registers from the address 76 */
+	 modbus_read_registers(ctx, 76, 4, tab_reg);
+
+	 printf("Got value: %08X\n", tab_reg[0]);
+	sleep(100); // reads and sleeps for 100ms
+	 modbus_close(ctx);
+	 modbus_free(ctx);
+
+	return 0;
+
+}
+
+
+
 
 int main(int argc, char **argv) {
     uint8_t rx_buf[bacnet_MAX_MPDU];
@@ -204,7 +292,7 @@ int main(int argc, char **argv) {
 
     bacnet_Device_Set_Object_Instance_Number(BACNET_INSTANCE_NO);
     bacnet_address_init();
-
+	my_modbus_connect();
     /* Setup device objects */
     bacnet_Device_Init(server_objects);
     BN_UNC(WHO_IS, who_is);
@@ -236,35 +324,9 @@ int main(int argc, char **argv) {
      *	    Store the register data into the tail of a linked list 
      */
 
-static int my_modbus_connect (void)
-{
-        modbus_t *ctx;
-	uint16_t tab_reg[32];
-	
-	//ctx = modbus_new_tcp("127.0.0.1", 502 );
-	 ctx = modbus_new_tcp(SERVER_ADDR, SERVER_PORT );
-	if (modbus_connect(ctx) == -1) {
-    	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
-   	 modbus_free(ctx);
-   	 return -1;
-	}
-
-          /* Read 4 registers from the address 76 */
-	 modbus_read_registers(ctx, 76, 4, tab_reg);
-
-	 printf("Got value: %08X\n", tab_reg[0]);
-	usleep(100000); // reads and sleeps for 100ms
-	 modbus_close(ctx);
-	 modbus_free(ctx);
-
-	return 0;
-
-}
-
 
     while (1) {
-	pdu_len = bacnet_datalink_receive(
-		    &src, rx_buf, bacnet_MAX_MPDU, BACNET_SELECT_TIMEOUT_MS);
+	pdu_len = bacnet_datalink_receive(&src, rx_buf, bacnet_MAX_MPDU, BACNET_SELECT_TIMEOUT_MS);
 
 	if (pdu_len) {
 	    /* May call any registered handler.
@@ -283,62 +345,7 @@ static int my_modbus_connect (void)
 
 
 /* Linked list object */
-typedef struct s_word_object word_object;
-struct s_word_object {
-    char *word;
-    word_object *next;
-};
-
-/* list_head: Shared between two threads, must be accessed with list_lock */
-static word_object *list_head;
-static pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t list_data_ready = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t list_data_flush = PTHREAD_COND_INITIALIZER;
-
-/* Add object to list */
-static void add_to_list(char *word) {
-    word_object *last_object, *tmp_object;
-    char *tmp_string;
-    
-    /* Do all memory allocation outside of locking - strdup() and malloc() can
-     * block */
-    tmp_object = malloc(sizeof(word_object));
-    tmp_string = strdup(word);
-
-    /* Set up tmp_object outside of locking */
-    tmp_object->word = tmp_string;
-    tmp_object->next = NULL;
-
-    pthread_mutex_lock(&list_lock);
-
-    if (list_head == NULL) {
-	/* The list is empty, just place our tmp_object at the head */
-	list_head = tmp_object;
-    } else {
-	/* Iterate through the linked list to find the last object */
-	last_object = list_head;
-	while (last_object->next) {
-	    last_object = last_object->next;
-	}
-	/* Last object is now found, link in our tmp_object at the tail */
-	last_object->next = tmp_object;
-    }
-
-    pthread_mutex_unlock(&list_lock);
-    pthread_cond_signal(&list_data_ready);
-}
-
-/* Retrieve the first object in the linked list. Note that this function must
- * be called with list_lock held */
-static word_object *list_get_first(void) {
-    word_object *first_object;
-
-    first_object = list_head;
-    list_head = list_head->next;
-
-    return first_object;
-}
-
+ty
 static void *print_func(void *arg) {
     word_object *current_object;
 
@@ -471,7 +478,7 @@ int modbus_connect(modbus_t *ctx);
     }
 }
 
-int main(int argc, char **argv) {
+/*int main(int argc, char **argv) {
     int c;
     int option_index = 0;
     int count = -1;
@@ -498,11 +505,11 @@ int main(int argc, char **argv) {
 		break;
 	}
     }
-    my_modbus_connect() ;
+   // my_modbus_connect() ;
     	
   
    //if (server) start_server();
-   //else start_client(count);
+   //else start_client(count);*/
 
-    return 0;
-}
+  //  return 0;
+//}
