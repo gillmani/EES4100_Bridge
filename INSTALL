@@ -9,6 +9,11 @@ are permitted in any medium without royalty provided the copyright
 notice and this notice are preserved.  This file is offered as-is,
 without warranty of any kind.
 
+running reconf or bootstrap.sh will run autotools. 
+./configure will run makefiles 
+make will check for errors in  file and create binaries 
+./src/hello_world will run the file
+
 Basic Installation
 ==================
 

@@ -36,8 +36,8 @@
 
 #if RUN_AS_BBMD_CLIENT
 #define BACNET_BBMD_PORT	    0xBAC0
-#define BACNET_BBMD_ADDRESS	    "140.159.160.7" // uni
-//#define BACNET_BBMD_ADDRESS	    "127.0.0.1"  // home
+//#define BACNET_BBMD_ADDRESS	    "140.159.160.7" // uni
+#define BACNET_BBMD_ADDRESS	    "127.0.0.1"  // home
 
 #define BACNET_BBMD_TTL		    90
 #endif
@@ -124,13 +124,9 @@ static int Update_Analog_Input_Read_Property(BACNET_READ_PROPERTY_DATA *rpdata)
         bacnet_Analog_Input_Present_Value_Set(1, tab_reg[index++]);
 	bacnet_Analog_Input_Present_Value_Set(2, tab_reg [index++]); 
         bacnet_Analog_Input_Present_Value_Set(3, tab_reg[index++]);
-// printing the data on tab reg	
+	
 
-	printf("modbus data no 0 %d\n",tabreg[0]);
-	printf("modbus data no 1 %d\n",tabreg[1]);
-	printf("modbus data no 2 %d\n",tabreg[2]);
-	printf("modbus data no 3 %d\n",tabreg[3]);
-
+	
 
 if (index == NUM_TEST_DATA) index = 0;
 	not_pv:
@@ -260,9 +256,11 @@ int my_modbus_connect (void)
 printf("modbus\n");
         modbus_t *ctx;
 	uint16_t tab_reg[32];
-	
+	int read;
+	int in;
+restart_process:
 	//ctx = modbus_new_tcp("127.0.0.1", 502 );
-	 ctx = modbus_new_tcp(SERVER_ADDR, SERVER_PORT );
+	ctx = modbus_new_tcp(SERVER_ADDR, SERVER_PORT );
 	if (modbus_connect(ctx) == -1) {
     	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
    	 modbus_free(ctx);
@@ -270,13 +268,22 @@ printf("modbus\n");
 	}
 
           /* Read 4 registers from the address 76 */
-	 modbus_read_registers(ctx, 76, 4, tab_reg);
-
+	 read = modbus_read_registers(ctx, 76, 4, tab_reg);
+	
+	
 	 printf("Got value: %08X\n", tab_reg[0]);
-	sleep(100); // reads and sleeps for 100ms
+	
+	goto restart_process;
 	 modbus_close(ctx);
 	 modbus_free(ctx);
 
+	for(in = 0; in < read; in++)
+{
+	add_to_list (& list_head[in], tab_reg[in];
+	printf("register[%d]= %d (0x%x)\n", in, tab_reg[in],tab_reg[in];
+del_from_head( tab_reg[in])
+}
+	sleep(100); // reads and sleeps for 100ms
 	return 0;
 
 }
