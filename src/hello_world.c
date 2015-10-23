@@ -26,7 +26,7 @@
 #define DATA_LENGTH 256
 
 
-#define BACNET_INSTANCE_NO	    12
+#define BACNET_INSTANCE_NO	    76 // device number given to me
 #define BACNET_PORT		    0xBAC1
 #define BACNET_INTERFACE	    "lo"
 #define BACNET_DATALINK_TYPE	    "bvlc"
@@ -36,11 +36,13 @@
 
 #if RUN_AS_BBMD_CLIENT
 #define BACNET_BBMD_PORT	    0xBAC0
-#define BACNET_BBMD_ADDRESS	    "127.0.0.1"
+#define BACNET_BBMD_ADDRESS	    "140.159.153.159" // uni
+//#define BACNET_BBMD_ADDRESS	    "127.0.0.1"  // home
+
 #define BACNET_BBMD_TTL		    90
 #endif
 
-
+static uint16_t tab_reg[4]={}
 static uint16_t test_data[] = {
     0xA4EC, 0x6E39, 0x8740, 0x1065, 0x9134, 0xFC8C };
 #define NUM_TEST_DATA (sizeof(test_data)/sizeof(test_data[0]))
@@ -57,14 +59,20 @@ static int Update_Analog_Input_Read_Property(
     if (rpdata->object_property != bacnet_PROP_PRESENT_VALUE) goto not_pv;
 
     printf("AI_Present_Value request for instance %i\n", instance_no);
+ //ANALOG INPUT FOR 4 INSTANCES
+	bacnet_Analog_Input_Present_Value_Set(0, tab_reg[index++]); 
+        bacnet_Analog_Input_Present_Value_Set(1, tab_reg[index++]);
+	bacnet_Analog_Input_Present_Value_Set(2, tab_reg [index++]); 
+        bacnet_Analog_Input_Present_Value_Set(3, tab_reg[index++]);
+// printing the data on tab reg	
 
-	bacnet_Analog_Input_Present_Value_Set(1, test_data[index++]); 
-        bacnet_Analog_Input_Present_Value_Set(2, test_data[index++]);
+	printf("modbus data no 0 %d\n",tabreg[0]);
+	printf("modbus data no 1 %d\n",tabreg[1]);
+	printf("modbus data no 2 %d\n",tabreg[2]);
+	printf("modbus data no 3 %d\n",tabreg[3]);
 
-	//printf("modbus data no 0 %d\n",testdata1
 
-
-	if (index == NUM_TEST_DATA) index = 0;
+if (index == NUM_TEST_DATA) index = 0;
 	not_pv:
     return bacnet_Analog_Input_Read_Property(rpdata);
 }
@@ -233,7 +241,7 @@ static int my_modbus_connect (void)
         modbus_t *ctx;
 	uint16_t tab_reg[32];
 	
-	ctx = modbus_new_tcp("127.0.0.1", 502 );
+	//ctx = modbus_new_tcp("127.0.0.1", 502 );
 	 ctx = modbus_new_tcp(SERVER_ADDR, SERVER_PORT );
 	if (modbus_connect(ctx) == -1) {
     	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
@@ -241,11 +249,11 @@ static int my_modbus_connect (void)
    	 return -1;
 	}
 
-          /* Read 3 registers from the address 0 */
-	 modbus_read_registers(ctx, 12, 3, tab_reg);
+          /* Read 4 registers from the address 76 */
+	 modbus_read_registers(ctx, 76, 4, tab_reg);
 
 	 printf("Got value: %08X\n", tab_reg[0]);
-
+	usleep(100000); // reads and sleeps for 100ms
 	 modbus_close(ctx);
 	 modbus_free(ctx);
 
